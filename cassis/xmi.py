@@ -8,6 +8,7 @@ from lxml import etree
 
 from cassis.cas import Cas, Sofa, View, IdGenerator
 from cassis.typesystem import FeatureStructure, TypeSystem
+from cassis.java_offsets_mapper import JavaOffsetsMapper
 
 
 @attr.s
@@ -193,8 +194,33 @@ class CasXmiDeserializer:
             else:
                 proto_view = ProtoView(sofa.xmiID)
 
+            # Patch: Rewrite offsets
+            if view.sofa_string is not None:
+                mapper = JavaOffsetsMapper(view.sofa_string)
+            else:
+                mapper = None
+            # End patch
+
             for member_id in proto_view.members:
                 annotation = feature_structures[member_id]
+
+                # Patch: Rewrite offsets
+                if mapper and \
+                        hasattr(annotation, "begin") and\
+                        hasattr(annotation, "end") and\
+                        annotation.begin is not None and\
+                        annotation.end is not None:
+
+                    annotation.begin = mapper.java_to_python_begin(annotation.begin)
+                    try:
+                        annotation.end = mapper.java_to_python_end(annotation.end)
+                    except Exception as e:
+                        print("\nYYYYYYYYYY", annotation.end)
+                        print("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXxx", mapper.text)
+
+
+
+                # End patch
 
                 view.add_annotation(annotation, keep_id=True)
 
@@ -369,6 +395,17 @@ class CasXmiSerializer:
             elif feature_name == "sofa":
                 elem.attrib[feature_name] = str(value.xmiID)
             elif ts.is_primitive(feature.rangeTypeName):
+                # Patch: Rewrite offsets
+                if feature_name == 'begin' or feature_name == 'end':
+                    string = [getattr(fs, f.name).sofaString for f in t.all_features if f.name == 'sofa'][0]
+                    if string is not None:
+                        mapper = JavaOffsetsMapper(string)
+                        if feature.name == 'begin':
+                            value = mapper.python_to_java_begin(value)
+                        elif feature.name == 'end':
+                            value = mapper.python_to_java_end(value)
+                        # End patch
+
                 elem.attrib[feature_name] = str(value)
             elif ts.is_collection(fs.type, feature):
                 elements = " ".join(str(e.xmiID) for e in value)
